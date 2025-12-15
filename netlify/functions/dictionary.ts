@@ -12,6 +12,14 @@ const handler: Handler = async (event, context) => {
     return { statusCode: 200, headers, body: "" };
   }
 
+  // Cấu hình Header giả lập trình duyệt để tránh bị chặn
+  const axiosConfig = {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    },
+  };
+
   try {
     const { term, mode } = event.queryStringParameters || {};
 
@@ -28,7 +36,10 @@ const handler: Handler = async (event, context) => {
       const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
         term
       )}`;
-      const response = await axios.get(googleUrl);
+
+      // Thêm axiosConfig vào đây
+      const response = await axios.get(googleUrl, axiosConfig);
+
       return {
         statusCode: 200,
         headers,
@@ -37,22 +48,20 @@ const handler: Handler = async (event, context) => {
     }
 
     // --- CHẾ ĐỘ 2: VIỆT - VIỆT (Dùng Wiktionary API) ---
-    // API này trả về định nghĩa chi tiết của từ tiếng Việt
     if (mode === "vi") {
-      // Endpoint mobile của Wiktionary trả về cấu trúc JSON rất sạch và dễ dùng
       const wikiUrl = `https://vi.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(
         term
       )}`;
 
       try {
-        const response = await axios.get(wikiUrl);
+        // Thêm axiosConfig vào đây
+        const response = await axios.get(wikiUrl, axiosConfig);
         return {
           statusCode: 200,
           headers,
           body: JSON.stringify({ source: "wiki", data: response.data }),
         };
       } catch (e: any) {
-        // Wiktionary trả về 404 nếu không tìm thấy từ
         if (e.response && e.response.status === 404) {
           return {
             statusCode: 404,
@@ -69,12 +78,18 @@ const handler: Handler = async (event, context) => {
       headers,
       body: JSON.stringify({ error: "Invalid mode" }),
     };
-  } catch (error) {
-    console.error(error);
+  } catch (error: any) {
+    console.error("Server Error:", error.message); // Log lỗi ra terminal của Netlify
+
+    // TRẢ VỀ CHI TIẾT LỖI ĐỂ DEBUG (Quan trọng)
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ error: "Failed to fetch data" }),
+      body: JSON.stringify({
+        error: "Failed to fetch data",
+        details: error.message,
+        stack: error.stack,
+      }),
     };
   }
 };
