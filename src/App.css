@@ -1,0 +1,33 @@
+@import url("https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,400;0,700;1,400&family=Nunito+Sans:wght@400;600;700&display=swap");
+
+body {
+  margin: 0;
+  font-family: "Nunito Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  background-color: #f7f5f0; /* Warm paper color */
+  color: #2c3e50;
+}
+
+/* Custom Scrollbar for a cleaner look */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+::-webkit-scrollbar-thumb {
+  background: #c1bca0;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a39e85;
+}
+
+/* Helper class for the Serif font */
+.font-serif {
+  font-family: "Merriweather", serif;
+}
+
+.ant-layout {
+  background: transparent !important; /* Let body background show through */
+}
