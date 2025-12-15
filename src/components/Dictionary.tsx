@@ -11,7 +11,6 @@ import {
   Tabs,
   Tooltip,
   Tag,
-  Segmented,
 } from "antd";
 import {
   SearchOutlined,
@@ -19,7 +18,6 @@ import {
   BookOutlined,
   CheckCircleOutlined,
   TranslationOutlined,
-  FileTextOutlined,
 } from "@ant-design/icons";
 import axios from "axios";
 
@@ -45,29 +43,39 @@ interface DictionaryData {
 }
 
 const translatePos = (pos: string): string => {
-  // Chuẩn hóa tên loại từ từ Wiktionary text
-  const cleanPos = pos.replace(/=/g, "").trim();
-  return cleanPos.charAt(0).toUpperCase() + cleanPos.slice(1);
+  const map: Record<string, string> = {
+    noun: "Danh từ",
+    verb: "Động từ",
+    adjective: "Tính từ",
+    adverb: "Trạng từ",
+    preposition: "Giới từ",
+    pronoun: "Đại từ",
+    interjection: "Thán từ",
+    conjunction: "Liên từ",
+    article: "Mạo từ",
+    abbreviation: "Viết tắt",
+  };
+  return map[pos.toLowerCase()] || pos;
 };
 
 const Dictionary: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<DictionaryData | null>(null);
-  const [mode, setMode] = useState<"en" | "vi">("en");
 
-  const playAudio = (text: string, lang: "en-US" | "vi-VN" = "en-US") => {
+  // Hàm phát âm: Nhận text và mã ngôn ngữ
+  const playAudio = (text: string, lang: "en-US" | "vi-VN") => {
     if (!text) return;
-    window.speechSynthesis.cancel();
+    window.speechSynthesis.cancel(); // Dừng âm thanh đang đọc (nếu có)
     const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = mode === "vi" ? "vi-VN" : lang;
-    utterance.rate = 0.9;
+    utterance.lang = lang;
+    utterance.rate = 0.9; // Tốc độ đọc
     window.speechSynthesis.speak(utterance);
   };
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
-      message.warning("Vui lòng nhập từ để tra!");
+      message.warning("Vui lòng nhập từ tiếng Anh để tra!");
       return;
     }
 
@@ -77,31 +85,24 @@ const Dictionary: React.FC = () => {
     try {
       const apiUrl = `/.netlify/functions/dictionary?term=${encodeURIComponent(
         searchTerm
-      )}&mode=${mode}`;
+      )}`;
       const response = await axios.get(apiUrl);
-      const { source, data: rawData } = response.data;
+      const rawData = response.data;
 
-      if (source === "google") {
-        parseGoogleData(rawData);
-      } else if (source === "wiki_text") {
-        parseWikiText(rawData); // Hàm xử lý mới
-      }
+      parseGoogleData(rawData);
     } catch (error: any) {
       console.error("Lỗi:", error);
-      if (error.response && error.response.status === 404) {
-        message.error("Không tìm thấy từ này.");
-      } else {
-        message.error("Lỗi kết nối.");
-      }
+      message.error("Lỗi kết nối hoặc không tìm thấy từ.");
     } finally {
       setLoading(false);
     }
   };
 
-  // --- PARSE GOOGLE DATA (Giữ nguyên) ---
   const parseGoogleData = (rawData: any) => {
     const mainTranslation = rawData[0]?.[0]?.[0] || "";
     let phonetic = "";
+
+    // Logic tìm phiên âm
     if (Array.isArray(rawData[0])) {
       for (let i = 1; i < rawData[0].length; i++) {
         const item = rawData[0][i];
@@ -118,13 +119,16 @@ const Dictionary: React.FC = () => {
         }
       }
     }
+
     const dictionaryRaw = rawData[1];
     const details: PartOfSpeechGroup[] = [];
+
     if (Array.isArray(dictionaryRaw)) {
       dictionaryRaw.forEach((group: any) => {
         const pos = group[0];
         const meaningsRaw = group[1];
         const meanings: DefinitionItem[] = [];
+
         if (Array.isArray(meaningsRaw)) {
           meaningsRaw.forEach((m: any) => {
             if (typeof m === "string") meanings.push({ meaning: m });
@@ -133,103 +137,17 @@ const Dictionary: React.FC = () => {
         if (meanings.length > 0) details.push({ pos, meanings });
       });
     }
+
+    if (!mainTranslation && details.length === 0) {
+      message.warning("Không tìm thấy dữ liệu cho từ này.");
+      return;
+    }
+
     setData({
       word: rawData[0]?.[0]?.[1] || searchTerm,
       phonetic,
       mainTranslation,
       details,
-    });
-  };
-
-  // --- PARSE WIKI TEXT (NEW - Xử lý văn bản thô) ---
-  const parseWikiText = (text: string) => {
-    // 1. Chỉ lấy phần "Tiếng Việt" (Nếu từ này có cả nghĩa tiếng Anh, Pháp...)
-    let vietnameseSection = text;
-    const startVi = text.indexOf("== Tiếng Việt ==");
-    if (startVi !== -1) {
-      // Cắt từ "== Tiếng Việt ==" đến "== " tiếp theo hoặc hết bài
-      const subText = text.substring(startVi + "== Tiếng Việt ==".length);
-      const nextLang = subText.indexOf("\n== "); // Tìm ngôn ngữ tiếp theo
-      vietnameseSection =
-        nextLang !== -1 ? subText.substring(0, nextLang) : subText;
-    }
-
-    // 2. Tìm các nhóm loại từ (=== Danh từ ===, === Động từ ===)
-    // Regex tìm các dòng bắt đầu bằng === ... ===
-    const posRegex = /={3,4}\s*(.*?)\s*={3,4}/g;
-    const details: PartOfSpeechGroup[] = [];
-    let match;
-
-    // Mảng tạm lưu vị trí các header
-    const headers: Array<{ pos: string; index: number; end: number }> = [];
-    while ((match = posRegex.exec(vietnameseSection)) !== null) {
-      headers.push({
-        pos: match[1],
-        index: match.index,
-        end: match.index + match[0].length,
-      });
-    }
-
-    headers.forEach((h, i) => {
-      const nextH = headers[i + 1];
-      // Lấy nội dung giữa header này và header tiếp theo
-      const content = vietnameseSection.substring(
-        h.end,
-        nextH ? nextH.index : undefined
-      );
-
-      // Bỏ qua các mục không phải loại từ (như "Cách phát âm", "Tham khảo")
-      const ignoredHeaders = [
-        "Cách phát âm",
-        "Tham khảo",
-        "Ghi chú",
-        "Đồng nghĩa",
-        "Trái nghĩa",
-        "Dịch",
-      ];
-      if (ignoredHeaders.some((ig) => h.pos.includes(ig))) return;
-
-      // 3. Phân tích nội dung để tìm định nghĩa (Dòng bắt đầu bằng #)
-      const lines = content.split("\n");
-      const meanings: DefinitionItem[] = [];
-
-      let currentMeaning: DefinitionItem | null = null;
-
-      lines.forEach((line) => {
-        const trimLine = line.trim();
-        if (trimLine.startsWith("# ")) {
-          // Đây là định nghĩa
-          const defText = trimLine.substring(2).trim();
-          // Lưu định nghĩa trước đó
-          if (currentMeaning) meanings.push(currentMeaning);
-          currentMeaning = { meaning: defText, examples: [] };
-        } else if (trimLine.startsWith("#:")) {
-          // Đây là ví dụ của định nghĩa trước đó
-          if (currentMeaning) {
-            const exText = trimLine.substring(2).trim();
-            currentMeaning.examples?.push(exText);
-          }
-        }
-      });
-      // Push cái cuối cùng
-      if (currentMeaning) meanings.push(currentMeaning);
-
-      if (meanings.length > 0) {
-        details.push({ pos: h.pos, meanings });
-      }
-    });
-
-    // Lấy định nghĩa đầu tiên làm main translation
-    const mainTranslation =
-      details.length > 0 && details[0].meanings.length > 0
-        ? details[0].meanings[0].meaning
-        : "Xem chi tiết bên dưới";
-
-    setData({
-      word: searchTerm,
-      phonetic: "", // Wiktionary Text extract khó parse phonetic chuẩn
-      mainTranslation: mainTranslation,
-      details: details,
     });
   };
 
@@ -242,32 +160,24 @@ const Dictionary: React.FC = () => {
           className="font-serif"
           style={{ color: "#344e41", marginBottom: 10 }}
         >
-          <BookOutlined /> Từ điển Thông minh
+          <BookOutlined /> Từ điển Anh - Việt
         </Title>
+        <Text type="secondary" style={{ fontSize: 16 }}>
+          Tra cứu ngữ nghĩa & Luyện phát âm
+        </Text>
 
-        <div style={{ marginBottom: 20 }}>
-          <Segmented
-            options={[
-              { label: "🇬🇧 Anh - Việt", value: "en" },
-              { label: "🇻🇳 Phân tích Tiếng Việt", value: "vi" },
-            ]}
-            value={mode}
-            onChange={(val) => {
-              setMode(val as "en" | "vi");
-              setSearchTerm("");
-              setData(null);
-            }}
-            size="large"
-            style={{ backgroundColor: "#e9ecef", padding: 4 }}
-          />
-        </div>
-
-        <div style={{ marginTop: 20, position: "relative" }}>
+        {/* Thanh tìm kiếm đã chỉnh sửa */}
+        <div
+          style={{
+            marginTop: 30,
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
           <Input
             size="large"
-            placeholder={
-              mode === "en" ? "Nhập từ tiếng Anh..." : "Nhập từ tiếng Việt..."
-            }
+            placeholder="Nhập từ tiếng Anh (VD: Serendipity, Code)..."
             prefix={
               <SearchOutlined style={{ color: "#8d99ae", fontSize: 20 }} />
             }
@@ -277,10 +187,11 @@ const Dictionary: React.FC = () => {
             allowClear
             style={{
               borderRadius: 30,
-              padding: "12px 50px 12px 25px",
+              padding: "12px 25px", // Đã bỏ padding phải lớn
               fontSize: 18,
               boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
               border: "1px solid #d9d9d9",
+              flex: 1, // Tự động co giãn chiếm chỗ trống
             }}
           />
           <Button
@@ -291,12 +202,10 @@ const Dictionary: React.FC = () => {
             onClick={handleSearch}
             loading={loading}
             style={{
-              position: "absolute",
-              right: 8,
-              top: 8,
-              width: 45,
-              height: 45,
+              width: 50,
+              height: 50,
               boxShadow: "0 4px 15px rgba(88, 129, 87, 0.3)",
+              flexShrink: 0, // Đảm bảo nút không bị bóp méo
             }}
           />
         </div>
@@ -305,14 +214,7 @@ const Dictionary: React.FC = () => {
       {/* RESULT AREA */}
       {loading ? (
         <div style={{ textAlign: "center", padding: 60 }}>
-          <Spin
-            size="large"
-            tip={
-              mode === "en"
-                ? "Đang dịch thuật..."
-                : "Đang tra cứu Wiktionary..."
-            }
-          />
+          <Spin size="large" tip="Đang tra cứu..." />
         </div>
       ) : data ? (
         <Card
@@ -324,7 +226,7 @@ const Dictionary: React.FC = () => {
             padding: "10px 20px",
           }}
         >
-          {/* WORD HEADER */}
+          {/* 1. TỪ VỰNG TIẾNG ANH (NGUỒN) */}
           <div
             style={{
               display: "flex",
@@ -367,18 +269,16 @@ const Dictionary: React.FC = () => {
                     {data.phonetic}
                   </Tag>
                 )}
-                {mode === "vi" && <Tag color="geekblue">Wiktionary</Tag>}
               </div>
             </div>
 
-            <Tooltip title="Nghe đọc">
+            {/* LOA PHÁT ÂM TIẾNG ANH */}
+            <Tooltip title="Nghe tiếng Anh (US)">
               <Button
                 shape="circle"
                 size="large"
                 icon={<SoundOutlined />}
-                onClick={() =>
-                  playAudio(data.word, mode === "vi" ? "vi-VN" : "en-US")
-                }
+                onClick={() => playAudio(data.word, "en-US")}
                 style={{
                   width: 60,
                   height: 60,
@@ -392,7 +292,7 @@ const Dictionary: React.FC = () => {
             </Tooltip>
           </div>
 
-          {/* MAIN DEFINITION */}
+          {/* 2. NGHĨA TIẾNG VIỆT (DỊCH CHÍNH) */}
           <div
             style={{
               marginBottom: 25,
@@ -400,41 +300,56 @@ const Dictionary: React.FC = () => {
               background: "#f1f8e9",
               borderRadius: 16,
               borderLeft: "5px solid #588157",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 5,
-              }}
-            >
-              {mode === "en" ? (
-                <TranslationOutlined style={{ color: "#588157" }} />
-              ) : (
-                <FileTextOutlined style={{ color: "#588157" }} />
-              )}
-              <Text
-                type="secondary"
-                style={{ textTransform: "uppercase", fontSize: 12 }}
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 5,
+                }}
               >
-                {mode === "en" ? "Bản dịch" : "Định nghĩa chính"}
+                <TranslationOutlined style={{ color: "#588157" }} />
+                <Text
+                  type="secondary"
+                  style={{ textTransform: "uppercase", fontSize: 12 }}
+                >
+                  Bản dịch
+                </Text>
+              </div>
+              <Text
+                style={{
+                  fontSize: 20,
+                  fontWeight: 600,
+                  color: "#344e41",
+                  lineHeight: 1.5,
+                }}
+              >
+                {data.mainTranslation}
               </Text>
             </div>
-            <Text
-              style={{
-                fontSize: 20,
-                fontWeight: 600,
-                color: "#344e41",
-                lineHeight: 1.5,
-              }}
-            >
-              {data.mainTranslation}
-            </Text>
+
+            {/* LOA PHÁT ÂM TIẾNG VIỆT */}
+            <Tooltip title="Nghe tiếng Việt">
+              <Button
+                type="text"
+                shape="circle"
+                icon={<SoundOutlined />}
+                onClick={() => playAudio(data.mainTranslation, "vi-VN")}
+                style={{
+                  color: "#588157",
+                  fontSize: 18,
+                }}
+              />
+            </Tooltip>
           </div>
 
-          {/* DETAILS TABS */}
+          {/* 3. CHI TIẾT TỪ ĐIỂN */}
           {data.details.length > 0 ? (
             <Tabs
               defaultActiveKey="0"
@@ -460,6 +375,9 @@ const Dictionary: React.FC = () => {
                               background: "#fafafa",
                               borderRadius: 12,
                               border: "1px solid #f0f0f0",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
                             }}
                           >
                             <div
@@ -487,30 +405,19 @@ const Dictionary: React.FC = () => {
                                 >
                                   {item.meaning}
                                 </Text>
-                                {item.examples && item.examples.length > 0 && (
-                                  <div
-                                    style={{
-                                      marginTop: 10,
-                                      paddingLeft: 10,
-                                      borderLeft: "3px solid #dfe6e9",
-                                    }}
-                                  >
-                                    {item.examples.map((ex, idx) => (
-                                      <div
-                                        key={idx}
-                                        style={{
-                                          fontStyle: "italic",
-                                          color: "#636e72",
-                                          marginBottom: 4,
-                                        }}
-                                      >
-                                        "{ex}"
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
                               </div>
                             </div>
+
+                            {/* Nút nghe nhỏ cho từng nghĩa chi tiết */}
+                            <Tooltip title="Nghe">
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={<SoundOutlined />}
+                                style={{ opacity: 0.6, color: "#588157" }}
+                                onClick={() => playAudio(item.meaning, "vi-VN")}
+                              />
+                            </Tooltip>
                           </div>
                         </List.Item>
                       )}
@@ -530,9 +437,7 @@ const Dictionary: React.FC = () => {
           image={Empty.PRESENTED_IMAGE_SIMPLE}
           description={
             <Text type="secondary">
-              {mode === "en"
-                ? "Tra từ điển Anh - Việt"
-                : "Giải nghĩa Tiếng Việt"}
+              Nhập từ vựng tiếng Anh để bắt đầu tra cứu.
             </Text>
           }
           style={{ marginTop: 80, opacity: 0.6 }}

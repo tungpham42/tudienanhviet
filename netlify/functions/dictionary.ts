@@ -21,7 +21,7 @@ const handler: Handler = async (event, context) => {
   };
 
   try {
-    const { term, mode } = event.queryStringParameters || {};
+    const { term } = event.queryStringParameters || {};
 
     if (!term) {
       return {
@@ -31,53 +31,17 @@ const handler: Handler = async (event, context) => {
       };
     }
 
-    // --- CHẾ ĐỘ 1: ANH - VIỆT (Google GTX) ---
-    if (mode === "en") {
-      const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
-        term
-      )}`;
-      const response = await axios.get(googleUrl, axiosConfig);
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ source: "google", data: response.data }),
-      };
-    }
+    // Luôn gọi Google GTX (Anh -> Việt)
+    const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
+      term
+    )}`;
 
-    // --- CHẾ ĐỘ 2: VIỆT - VIỆT (Wiktionary Standard API - api.php) ---
-    if (mode === "vi") {
-      // Dùng action=query&prop=extracts để lấy nội dung văn bản
-      const wikiUrl = `https://vi.wiktionary.org/w/api.php?action=query&format=json&prop=extracts&explaintext=1&titles=${encodeURIComponent(
-        term
-      )}`;
-
-      const response = await axios.get(wikiUrl, axiosConfig);
-      const pages = response.data.query?.pages;
-
-      // Wiktionary trả về object có key là pageId (số ngẫu nhiên), ta cần lấy page đầu tiên
-      const pageId = Object.keys(pages)[0];
-
-      if (pageId === "-1") {
-        return {
-          statusCode: 404,
-          headers,
-          body: JSON.stringify({ error: "Not found" }),
-        };
-      }
-
-      const extract = pages[pageId].extract;
-
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ source: "wiki_text", data: extract }),
-      };
-    }
+    const response = await axios.get(googleUrl, axiosConfig);
 
     return {
-      statusCode: 400,
+      statusCode: 200,
       headers,
-      body: JSON.stringify({ error: "Invalid mode" }),
+      body: JSON.stringify(response.data), // Trả về trực tiếp dữ liệu từ Google
     };
   } catch (error: any) {
     console.error("Server Error:", error.message);
