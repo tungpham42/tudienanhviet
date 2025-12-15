@@ -2,47 +2,72 @@ import { Handler } from "@netlify/functions";
 import axios from "axios";
 
 const handler: Handler = async (event, context) => {
-  // 1. Cấu hình Headers để CHO PHÉP CORS từ mọi nguồn (hoặc tên miền của bạn)
   const headers = {
-    "Access-Control-Allow-Origin": "*", // Cho phép tất cả. Khi deploy thật nên đổi thành domain của bạn
+    "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   };
 
-  // 2. Xử lý preflight request (trình duyệt hỏi trước khi gửi request thật)
   if (event.httpMethod === "OPTIONS") {
-    return {
-      statusCode: 200,
-      headers,
-      body: "",
-    };
+    return { statusCode: 200, headers, body: "" };
   }
 
   try {
-    // 3. Lấy từ khóa từ query param (?term=hello)
-    const { term } = event.queryStringParameters || {};
+    const { term, mode } = event.queryStringParameters || {};
 
     if (!term) {
       return {
         statusCode: 400,
         headers,
-        body: JSON.stringify({ error: "Missing term parameter" }),
+        body: JSON.stringify({ error: "Missing term" }),
       };
     }
 
-    // 4. Gọi API Google (Server-to-Server, không bị CORS)
-    // dt=t (dịch), dt=bd (từ điển), dt=rm (phiên âm)
-    const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
-      term
-    )}`;
+    // --- CHẾ ĐỘ 1: ANH - VIỆT (Dùng Google GTX) ---
+    if (mode === "en") {
+      const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
+        term
+      )}`;
+      const response = await axios.get(googleUrl);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ source: "google", data: response.data }),
+      };
+    }
 
-    const response = await axios.get(googleUrl);
+    // --- CHẾ ĐỘ 2: VIỆT - VIỆT (Dùng Wiktionary API) ---
+    // API này trả về định nghĩa chi tiết của từ tiếng Việt
+    if (mode === "vi") {
+      // Endpoint mobile của Wiktionary trả về cấu trúc JSON rất sạch và dễ dùng
+      const wikiUrl = `https://vi.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(
+        term
+      )}`;
 
-    // 5. Trả dữ liệu về cho Frontend
+      try {
+        const response = await axios.get(wikiUrl);
+        return {
+          statusCode: 200,
+          headers,
+          body: JSON.stringify({ source: "wiki", data: response.data }),
+        };
+      } catch (e: any) {
+        // Wiktionary trả về 404 nếu không tìm thấy từ
+        if (e.response && e.response.status === 404) {
+          return {
+            statusCode: 404,
+            headers,
+            body: JSON.stringify({ error: "Not found" }),
+          };
+        }
+        throw e;
+      }
+    }
+
     return {
-      statusCode: 200,
+      statusCode: 400,
       headers,
-      body: JSON.stringify(response.data),
+      body: JSON.stringify({ error: "Invalid mode" }),
     };
   } catch (error) {
     console.error(error);
