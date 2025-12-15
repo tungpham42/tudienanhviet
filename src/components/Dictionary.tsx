@@ -11,7 +11,7 @@ import {
   Tabs,
   Tooltip,
   Tag,
-  Segmented, // Component chuyển đổi chế độ đẹp mắt
+  Segmented,
 } from "antd";
 import {
   SearchOutlined,
@@ -25,11 +25,11 @@ import axios from "axios";
 
 const { Title, Text } = Typography;
 
-// --- 1. INTERFACES ---
+// --- INTERFACES ---
 interface DefinitionItem {
   meaning: string;
   synonyms?: string[];
-  examples?: string[]; // Thêm trường ví dụ
+  examples?: string[];
 }
 
 interface PartOfSpeechGroup {
@@ -40,52 +40,26 @@ interface PartOfSpeechGroup {
 interface DictionaryData {
   word: string;
   phonetic?: string;
-  mainTranslation: string; // Với tiếng Việt, đây sẽ là định nghĩa ngắn gọn nhất
+  mainTranslation: string;
   details: PartOfSpeechGroup[];
 }
 
-// --- 2. HELPERS ---
 const translatePos = (pos: string): string => {
-  const map: Record<string, string> = {
-    // Tiếng Anh
-    noun: "Danh từ",
-    verb: "Động từ",
-    adjective: "Tính từ",
-    adverb: "Trạng từ",
-    preposition: "Giới từ",
-    pronoun: "Đại từ",
-    // Wiktionary hay trả về tiếng Việt luôn hoặc các mã sau
-    "danh từ": "Danh từ",
-    "động từ": "Động từ",
-    "tính từ": "Tính từ",
-    "trạng từ": "Trạng từ",
-    "thán từ": "Thán từ",
-  };
-  return map[pos.toLowerCase()] || pos.charAt(0).toUpperCase() + pos.slice(1);
+  // Chuẩn hóa tên loại từ từ Wiktionary text
+  const cleanPos = pos.replace(/=/g, "").trim();
+  return cleanPos.charAt(0).toUpperCase() + cleanPos.slice(1);
 };
 
-// Hàm loại bỏ HTML tags từ Wiktionary (vì nó trả về dạng <i>...</i>)
-const stripHtml = (html: string) => {
-  const tmp = document.createElement("DIV");
-  tmp.innerHTML = html;
-  return tmp.textContent || tmp.innerText || "";
-};
-
-// --- 3. COMPONENT CHÍNH ---
 const Dictionary: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<DictionaryData | null>(null);
-
-  // State chế độ: 'en' (Anh-Việt) hoặc 'vi' (Giải nghĩa Tiếng Việt)
   const [mode, setMode] = useState<"en" | "vi">("en");
 
-  // --- HÀM PHÁT ÂM ---
   const playAudio = (text: string, lang: "en-US" | "vi-VN" = "en-US") => {
     if (!text) return;
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
-    // Nếu đang ở chế độ Tiếng Việt, luôn ép về giọng Việt
     utterance.lang = mode === "vi" ? "vi-VN" : lang;
     utterance.rate = 0.9;
     window.speechSynthesis.speak(utterance);
@@ -101,7 +75,6 @@ const Dictionary: React.FC = () => {
     setData(null);
 
     try {
-      // Gửi thêm param `mode` lên server
       const apiUrl = `/.netlify/functions/dictionary?term=${encodeURIComponent(
         searchTerm
       )}&mode=${mode}`;
@@ -110,27 +83,25 @@ const Dictionary: React.FC = () => {
 
       if (source === "google") {
         parseGoogleData(rawData);
-      } else if (source === "wiki") {
-        parseWikiData(rawData);
+      } else if (source === "wiki_text") {
+        parseWikiText(rawData); // Hàm xử lý mới
       }
     } catch (error: any) {
       console.error("Lỗi:", error);
       if (error.response && error.response.status === 404) {
-        message.error("Không tìm thấy từ này trong từ điển.");
+        message.error("Không tìm thấy từ này.");
       } else {
-        message.error("Lỗi kết nối đến máy chủ.");
+        message.error("Lỗi kết nối.");
       }
     } finally {
       setLoading(false);
     }
   };
 
-  // --- LOGIC XỬ LÝ DỮ LIỆU GOOGLE (ANH - VIỆT) ---
+  // --- PARSE GOOGLE DATA (Giữ nguyên) ---
   const parseGoogleData = (rawData: any) => {
     const mainTranslation = rawData[0]?.[0]?.[0] || "";
     let phonetic = "";
-
-    // Logic tìm phonetic (giữ nguyên như cũ)
     if (Array.isArray(rawData[0])) {
       for (let i = 1; i < rawData[0].length; i++) {
         const item = rawData[0][i];
@@ -147,10 +118,8 @@ const Dictionary: React.FC = () => {
         }
       }
     }
-
     const dictionaryRaw = rawData[1];
     const details: PartOfSpeechGroup[] = [];
-
     if (Array.isArray(dictionaryRaw)) {
       dictionaryRaw.forEach((group: any) => {
         const pos = group[0];
@@ -164,7 +133,6 @@ const Dictionary: React.FC = () => {
         if (meanings.length > 0) details.push({ pos, meanings });
       });
     }
-
     setData({
       word: rawData[0]?.[0]?.[1] || searchTerm,
       phonetic,
@@ -173,60 +141,101 @@ const Dictionary: React.FC = () => {
     });
   };
 
-  // --- LOGIC XỬ LÝ DỮ LIỆU WIKTIONARY (VIỆT - VIỆT) ---
-  const parseWikiData = (wikiData: any) => {
-    // Wiktionary cấu trúc: { vi: [ { partOfSpeech: 'Danh từ', definitions: [...] } ] }
-    // Lấy ngôn ngữ tiếng Việt ('vi')
-    const langData = wikiData["vi"];
-
-    if (!langData || langData.length === 0) {
-      message.warning("Chưa có dữ liệu phân tích cho từ này.");
-      return;
+  // --- PARSE WIKI TEXT (NEW - Xử lý văn bản thô) ---
+  const parseWikiText = (text: string) => {
+    // 1. Chỉ lấy phần "Tiếng Việt" (Nếu từ này có cả nghĩa tiếng Anh, Pháp...)
+    let vietnameseSection = text;
+    const startVi = text.indexOf("== Tiếng Việt ==");
+    if (startVi !== -1) {
+      // Cắt từ "== Tiếng Việt ==" đến "== " tiếp theo hoặc hết bài
+      const subText = text.substring(startVi + "== Tiếng Việt ==".length);
+      const nextLang = subText.indexOf("\n== "); // Tìm ngôn ngữ tiếp theo
+      vietnameseSection =
+        nextLang !== -1 ? subText.substring(0, nextLang) : subText;
     }
 
+    // 2. Tìm các nhóm loại từ (=== Danh từ ===, === Động từ ===)
+    // Regex tìm các dòng bắt đầu bằng === ... ===
+    const posRegex = /={3,4}\s*(.*?)\s*={3,4}/g;
     const details: PartOfSpeechGroup[] = [];
-    let firstMeaning = "";
+    let match;
 
-    langData.forEach((item: any) => {
-      const pos = item.partOfSpeech;
-      const definitions = item.definitions || [];
+    // Mảng tạm lưu vị trí các header
+    const headers: Array<{ pos: string; index: number; end: number }> = [];
+    while ((match = posRegex.exec(vietnameseSection)) !== null) {
+      headers.push({
+        pos: match[1],
+        index: match.index,
+        end: match.index + match[0].length,
+      });
+    }
+
+    headers.forEach((h, i) => {
+      const nextH = headers[i + 1];
+      // Lấy nội dung giữa header này và header tiếp theo
+      const content = vietnameseSection.substring(
+        h.end,
+        nextH ? nextH.index : undefined
+      );
+
+      // Bỏ qua các mục không phải loại từ (như "Cách phát âm", "Tham khảo")
+      const ignoredHeaders = [
+        "Cách phát âm",
+        "Tham khảo",
+        "Ghi chú",
+        "Đồng nghĩa",
+        "Trái nghĩa",
+        "Dịch",
+      ];
+      if (ignoredHeaders.some((ig) => h.pos.includes(ig))) return;
+
+      // 3. Phân tích nội dung để tìm định nghĩa (Dòng bắt đầu bằng #)
+      const lines = content.split("\n");
       const meanings: DefinitionItem[] = [];
 
-      definitions.forEach((def: any) => {
-        // Làm sạch HTML trong definition
-        const cleanDef = stripHtml(def.definition);
-        if (!firstMeaning) firstMeaning = cleanDef; // Lấy nghĩa đầu tiên làm main
+      let currentMeaning: DefinitionItem | null = null;
 
-        // Parse ví dụ (nếu có)
-        const examples: string[] = [];
-        if (def.examples) {
-          def.examples.forEach((ex: any) => {
-            if (typeof ex === "string") examples.push(stripHtml(ex));
-          });
+      lines.forEach((line) => {
+        const trimLine = line.trim();
+        if (trimLine.startsWith("# ")) {
+          // Đây là định nghĩa
+          const defText = trimLine.substring(2).trim();
+          // Lưu định nghĩa trước đó
+          if (currentMeaning) meanings.push(currentMeaning);
+          currentMeaning = { meaning: defText, examples: [] };
+        } else if (trimLine.startsWith("#:")) {
+          // Đây là ví dụ của định nghĩa trước đó
+          if (currentMeaning) {
+            const exText = trimLine.substring(2).trim();
+            currentMeaning.examples?.push(exText);
+          }
         }
-
-        meanings.push({
-          meaning: cleanDef,
-          examples: examples,
-        });
       });
+      // Push cái cuối cùng
+      if (currentMeaning) meanings.push(currentMeaning);
 
       if (meanings.length > 0) {
-        details.push({ pos, meanings });
+        details.push({ pos: h.pos, meanings });
       }
     });
 
+    // Lấy định nghĩa đầu tiên làm main translation
+    const mainTranslation =
+      details.length > 0 && details[0].meanings.length > 0
+        ? details[0].meanings[0].meaning
+        : "Xem chi tiết bên dưới";
+
     setData({
       word: searchTerm,
-      phonetic: "", // Wiktionary API này ít trả về phonetic dạng text đơn giản
-      mainTranslation: firstMeaning, // Hiển thị nghĩa đầu tiên ở phần Highlight
+      phonetic: "", // Wiktionary Text extract khó parse phonetic chuẩn
+      mainTranslation: mainTranslation,
       details: details,
     });
   };
 
   return (
     <div style={{ maxWidth: 800, margin: "0 auto" }}>
-      {/* HEADER & MODE SWITCHER */}
+      {/* HEADER AREA */}
       <div style={{ textAlign: "center", marginBottom: 30 }}>
         <Title
           level={1}
@@ -236,7 +245,6 @@ const Dictionary: React.FC = () => {
           <BookOutlined /> Từ điển Thông minh
         </Title>
 
-        {/* THANH CHUYỂN ĐỔI CHẾ ĐỘ */}
         <div style={{ marginBottom: 20 }}>
           <Segmented
             options={[
@@ -258,9 +266,7 @@ const Dictionary: React.FC = () => {
           <Input
             size="large"
             placeholder={
-              mode === "en"
-                ? "Nhập từ tiếng Anh (VD: Serendipity)..."
-                : "Nhập từ tiếng Việt (VD: Lạc quan, Mèo)..."
+              mode === "en" ? "Nhập từ tiếng Anh..." : "Nhập từ tiếng Việt..."
             }
             prefix={
               <SearchOutlined style={{ color: "#8d99ae", fontSize: 20 }} />
@@ -304,7 +310,7 @@ const Dictionary: React.FC = () => {
             tip={
               mode === "en"
                 ? "Đang dịch thuật..."
-                : "Đang phân tích ngữ nghĩa..."
+                : "Đang tra cứu Wiktionary..."
             }
           />
         </div>
@@ -318,7 +324,7 @@ const Dictionary: React.FC = () => {
             padding: "10px 20px",
           }}
         >
-          {/* 1. TỪ VỰNG & PHÁT ÂM */}
+          {/* WORD HEADER */}
           <div
             style={{
               display: "flex",
@@ -340,7 +346,6 @@ const Dictionary: React.FC = () => {
               >
                 {data.word}
               </Title>
-
               <div
                 style={{
                   display: "flex",
@@ -353,7 +358,6 @@ const Dictionary: React.FC = () => {
                   <Tag
                     style={{
                       fontSize: 16,
-                      padding: "4px 10px",
                       fontFamily: "monospace",
                       color: "#666",
                       background: "#f5f5f5",
@@ -363,12 +367,11 @@ const Dictionary: React.FC = () => {
                     {data.phonetic}
                   </Tag>
                 )}
-                {/* Ở chế độ Tiếng Việt, hiển thị thêm Tag */}
-                {mode === "vi" && <Tag color="gold">Tiếng Việt</Tag>}
+                {mode === "vi" && <Tag color="geekblue">Wiktionary</Tag>}
               </div>
             </div>
 
-            <Tooltip title={mode === "en" ? "Nghe tiếng Anh" : "Nghe đọc từ"}>
+            <Tooltip title="Nghe đọc">
               <Button
                 shape="circle"
                 size="large"
@@ -389,7 +392,7 @@ const Dictionary: React.FC = () => {
             </Tooltip>
           </div>
 
-          {/* 2. NGHĨA CHÍNH (HIGHLIGHT) */}
+          {/* MAIN DEFINITION */}
           <div
             style={{
               marginBottom: 25,
@@ -397,68 +400,41 @@ const Dictionary: React.FC = () => {
               background: "#f1f8e9",
               borderRadius: 16,
               borderLeft: "5px solid #588157",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "flex-start",
-              gap: 15,
             }}
           >
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  marginBottom: 5,
-                }}
-              >
-                {mode === "en" ? (
-                  <TranslationOutlined
-                    style={{ fontSize: 18, color: "#588157" }}
-                  />
-                ) : (
-                  <FileTextOutlined
-                    style={{ fontSize: 18, color: "#588157" }}
-                  />
-                )}
-                <Text
-                  type="secondary"
-                  style={{
-                    textTransform: "uppercase",
-                    fontSize: 12,
-                    letterSpacing: 1,
-                  }}
-                >
-                  {mode === "en" ? "Bản dịch gợi ý" : "Định nghĩa chính"}
-                </Text>
-              </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                marginBottom: 5,
+              }}
+            >
+              {mode === "en" ? (
+                <TranslationOutlined style={{ color: "#588157" }} />
+              ) : (
+                <FileTextOutlined style={{ color: "#588157" }} />
+              )}
               <Text
-                style={{
-                  fontSize: 20,
-                  fontWeight: 600,
-                  color: "#344e41",
-                  lineHeight: 1.5,
-                }}
+                type="secondary"
+                style={{ textTransform: "uppercase", fontSize: 12 }}
               >
-                {data.mainTranslation}
+                {mode === "en" ? "Bản dịch" : "Định nghĩa chính"}
               </Text>
             </div>
-
-            {/* Nút phát âm (Chỉ hiện nếu không trùng với từ gốc) */}
-            {mode === "en" && (
-              <Tooltip title="Nghe tiếng Việt">
-                <Button
-                  type="text"
-                  shape="circle"
-                  icon={<SoundOutlined />}
-                  onClick={() => playAudio(data.mainTranslation, "vi-VN")}
-                  style={{ color: "#588157", marginTop: 5 }}
-                />
-              </Tooltip>
-            )}
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: 600,
+                color: "#344e41",
+                lineHeight: 1.5,
+              }}
+            >
+              {data.mainTranslation}
+            </Text>
           </div>
 
-          {/* 3. CHI TIẾT NGỮ NGHĨA (TABS) */}
+          {/* DETAILS TABS */}
           {data.details.length > 0 ? (
             <Tabs
               defaultActiveKey="0"
@@ -511,8 +487,6 @@ const Dictionary: React.FC = () => {
                                 >
                                   {item.meaning}
                                 </Text>
-
-                                {/* Hiển thị Ví dụ nếu có (Wiktionary thường có) */}
                                 {item.examples && item.examples.length > 0 && (
                                   <div
                                     style={{
@@ -547,7 +521,7 @@ const Dictionary: React.FC = () => {
             />
           ) : (
             <div style={{ textAlign: "center", padding: 30, color: "#aaa" }}>
-              <Text>Không có thông tin phân loại ngữ pháp chi tiết.</Text>
+              <Text>Không tìm thấy nội dung chi tiết cho từ này.</Text>
             </div>
           )}
         </Card>
@@ -558,7 +532,7 @@ const Dictionary: React.FC = () => {
             <Text type="secondary">
               {mode === "en"
                 ? "Tra từ điển Anh - Việt"
-                : "Giải nghĩa Từ vựng Tiếng Việt"}
+                : "Giải nghĩa Tiếng Việt"}
             </Text>
           }
           style={{ marginTop: 80, opacity: 0.6 }}

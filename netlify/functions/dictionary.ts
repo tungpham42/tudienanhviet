@@ -12,7 +12,7 @@ const handler: Handler = async (event, context) => {
     return { statusCode: 200, headers, body: "" };
   }
 
-  // Cấu hình Header giả lập trình duyệt để tránh bị chặn
+  // Header giả lập trình duyệt
   const axiosConfig = {
     headers: {
       "User-Agent":
@@ -31,15 +31,12 @@ const handler: Handler = async (event, context) => {
       };
     }
 
-    // --- CHẾ ĐỘ 1: ANH - VIỆT (Dùng Google GTX) ---
+    // --- CHẾ ĐỘ 1: ANH - VIỆT (Google GTX) ---
     if (mode === "en") {
       const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
         term
       )}`;
-
-      // Thêm axiosConfig vào đây
       const response = await axios.get(googleUrl, axiosConfig);
-
       return {
         statusCode: 200,
         headers,
@@ -47,30 +44,34 @@ const handler: Handler = async (event, context) => {
       };
     }
 
-    // --- CHẾ ĐỘ 2: VIỆT - VIỆT (Dùng Wiktionary API) ---
+    // --- CHẾ ĐỘ 2: VIỆT - VIỆT (Wiktionary Standard API - api.php) ---
     if (mode === "vi") {
-      const wikiUrl = `https://vi.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(
+      // Dùng action=query&prop=extracts để lấy nội dung văn bản
+      const wikiUrl = `https://vi.wiktionary.org/w/api.php?action=query&format=json&prop=extracts&explaintext=1&titles=${encodeURIComponent(
         term
       )}`;
 
-      try {
-        // Thêm axiosConfig vào đây
-        const response = await axios.get(wikiUrl, axiosConfig);
+      const response = await axios.get(wikiUrl, axiosConfig);
+      const pages = response.data.query?.pages;
+
+      // Wiktionary trả về object có key là pageId (số ngẫu nhiên), ta cần lấy page đầu tiên
+      const pageId = Object.keys(pages)[0];
+
+      if (pageId === "-1") {
         return {
-          statusCode: 200,
+          statusCode: 404,
           headers,
-          body: JSON.stringify({ source: "wiki", data: response.data }),
+          body: JSON.stringify({ error: "Not found" }),
         };
-      } catch (e: any) {
-        if (e.response && e.response.status === 404) {
-          return {
-            statusCode: 404,
-            headers,
-            body: JSON.stringify({ error: "Not found" }),
-          };
-        }
-        throw e;
       }
+
+      const extract = pages[pageId].extract;
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ source: "wiki_text", data: extract }),
+      };
     }
 
     return {
@@ -79,17 +80,11 @@ const handler: Handler = async (event, context) => {
       body: JSON.stringify({ error: "Invalid mode" }),
     };
   } catch (error: any) {
-    console.error("Server Error:", error.message); // Log lỗi ra terminal của Netlify
-
-    // TRẢ VỀ CHI TIẾT LỖI ĐỂ DEBUG (Quan trọng)
+    console.error("Server Error:", error.message);
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({
-        error: "Failed to fetch data",
-        details: error.message,
-        stack: error.stack,
-      }),
+      body: JSON.stringify({ error: error.message }),
     };
   }
 };
