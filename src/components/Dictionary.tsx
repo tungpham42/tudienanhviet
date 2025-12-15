@@ -268,7 +268,8 @@ const Dictionary: React.FC = () => {
                   <Tag
                     style={{
                       fontSize: 16,
-                      fontFamily: "monospace",
+                      fontFamily: "sans-serif",
+                      fontStyle: "italic",
                       color: "#666",
                       background: "#f5f5f5",
                       border: "none",
