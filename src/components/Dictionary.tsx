@@ -63,14 +63,23 @@ const Dictionary: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<DictionaryData | null>(null);
 
-  // Hàm phát âm: Nhận text và mã ngôn ngữ
+  // --- HÀM PHÁT ÂM MỚI (Dùng Google Translate TTS API) ---
   const playAudio = (text: string, lang: "en-US" | "vi-VN") => {
     if (!text) return;
-    window.speechSynthesis.cancel(); // Dừng âm thanh đang đọc (nếu có)
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.rate = 0.9; // Tốc độ đọc
-    window.speechSynthesis.speak(utterance);
+
+    // Chuyển mã ngôn ngữ chuẩn sang mã Google (en, vi)
+    const targetLang = lang === "en-US" ? "en" : "vi";
+
+    // API Endpoint miễn phí của Google (client=tw-ob giúp bypass captcha)
+    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${targetLang}&q=${encodeURIComponent(
+      text
+    )}`;
+
+    const audio = new Audio(audioUrl);
+    audio.play().catch((e) => {
+      console.error("Lỗi phát âm:", e);
+      message.error("Không thể tải file âm thanh.");
+    });
   };
 
   const handleSearch = async () => {
@@ -166,7 +175,7 @@ const Dictionary: React.FC = () => {
           Tra cứu ngữ nghĩa & Luyện phát âm
         </Text>
 
-        {/* Thanh tìm kiếm đã chỉnh sửa */}
+        {/* Thanh tìm kiếm */}
         <div
           style={{
             marginTop: 30,
@@ -187,11 +196,11 @@ const Dictionary: React.FC = () => {
             allowClear
             style={{
               borderRadius: 30,
-              padding: "12px 25px", // Đã bỏ padding phải lớn
+              padding: "12px 25px",
               fontSize: 18,
               boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
               border: "1px solid #d9d9d9",
-              flex: 1, // Tự động co giãn chiếm chỗ trống
+              flex: 1,
             }}
           />
           <Button
@@ -205,7 +214,7 @@ const Dictionary: React.FC = () => {
               width: 50,
               height: 50,
               boxShadow: "0 4px 15px rgba(88, 129, 87, 0.3)",
-              flexShrink: 0, // Đảm bảo nút không bị bóp méo
+              flexShrink: 0,
             }}
           />
         </div>
@@ -273,7 +282,7 @@ const Dictionary: React.FC = () => {
             </div>
 
             {/* LOA PHÁT ÂM TIẾNG ANH */}
-            <Tooltip title="Nghe tiếng Anh (US)">
+            <Tooltip title="Nghe tiếng Anh">
               <Button
                 shape="circle"
                 size="large"
