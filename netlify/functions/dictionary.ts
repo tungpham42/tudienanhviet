@@ -12,7 +12,6 @@ const handler: Handler = async (event, context) => {
     return { statusCode: 200, headers, body: "" };
   }
 
-  // Header giả lập trình duyệt
   const axiosConfig = {
     headers: {
       "User-Agent":
@@ -21,7 +20,8 @@ const handler: Handler = async (event, context) => {
   };
 
   try {
-    const { term } = event.queryStringParameters || {};
+    // Lấy thêm tham số 'type' và 'lang'
+    const { term, type, lang } = event.queryStringParameters || {};
 
     if (!term) {
       return {
@@ -31,7 +31,35 @@ const handler: Handler = async (event, context) => {
       };
     }
 
-    // Luôn gọi Google GTX (Anh -> Việt)
+    // --- CASE 1: AUDIO PROXY (Xử lý âm thanh) ---
+    if (type === "audio") {
+      const targetLang = lang === "vi" ? "vi" : "en";
+
+      // URL Google TTS
+      const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${targetLang}&q=${encodeURIComponent(
+        term
+      )}`;
+
+      // Gọi Google lấy file binary (arraybuffer)
+      const response = await axios.get(audioUrl, {
+        ...axiosConfig,
+        responseType: "arraybuffer",
+      });
+
+      // Trả về file âm thanh
+      return {
+        statusCode: 200,
+        headers: {
+          ...headers,
+          "Content-Type": "audio/mpeg", // Báo cho trình duyệt đây là file nhạc
+        },
+        // Netlify yêu cầu file binary phải chuyển sang base64
+        body: Buffer.from(response.data).toString("base64"),
+        isBase64Encoded: true,
+      };
+    }
+
+    // --- CASE 2: TEXT DICTIONARY (Mặc định - Tra từ) ---
     const googleUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=vi&dt=t&dt=bd&dt=rm&q=${encodeURIComponent(
       term
     )}`;
@@ -41,7 +69,7 @@ const handler: Handler = async (event, context) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify(response.data), // Trả về trực tiếp dữ liệu từ Google
+      body: JSON.stringify(response.data),
     };
   } catch (error: any) {
     console.error("Server Error:", error.message);

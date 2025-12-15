@@ -63,17 +63,16 @@ const Dictionary: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<DictionaryData | null>(null);
 
-  // --- HÀM PHÁT ÂM MỚI (Dùng Google Translate TTS API) ---
+  // --- HÀM PHÁT ÂM MỚI (Gọi qua Netlify Proxy) ---
   const playAudio = (text: string, lang: "en-US" | "vi-VN") => {
     if (!text) return;
 
-    // Chuyển mã ngôn ngữ chuẩn sang mã Google (en, vi)
     const targetLang = lang === "en-US" ? "en" : "vi";
 
-    // API Endpoint miễn phí của Google (client=tw-ob giúp bypass captcha)
-    const audioUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=${targetLang}&q=${encodeURIComponent(
+    // Gọi vào Netlify Function của chính mình với type=audio
+    const audioUrl = `/.netlify/functions/dictionary?type=audio&term=${encodeURIComponent(
       text
-    )}`;
+    )}&lang=${targetLang}`;
 
     const audio = new Audio(audioUrl);
     audio.play().catch((e) => {
@@ -282,7 +281,7 @@ const Dictionary: React.FC = () => {
             </div>
 
             {/* LOA PHÁT ÂM TIẾNG ANH */}
-            <Tooltip title="Nghe tiếng Anh">
+            <Tooltip title="Nghe tiếng Anh (US)">
               <Button
                 shape="circle"
                 size="large"
