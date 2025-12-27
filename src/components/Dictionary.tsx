@@ -70,7 +70,7 @@ const Dictionary: React.FC = () => {
     const targetLang = lang === "en-US" ? "en" : "vi";
 
     // Gọi vào Netlify Function của chính mình với type=audio
-    const audioUrl = `/.netlify/functions/dictionary?type=audio&term=${encodeURIComponent(
+    const audioUrl = `https://googlespeak.netlify.app/api/tts?text=${encodeURIComponent(
       text
     )}&lang=${targetLang}`;
 
