@@ -64,17 +64,16 @@ const Dictionary: React.FC = () => {
   const [data, setData] = useState<DictionaryData | null>(null);
 
   // --- HÀM PHÁT ÂM MỚI (Gọi qua Netlify Proxy) ---
-  const playAudio = (text: string, lang: "en-US" | "vi-VN") => {
+  const playAudio = async (text: string, lang: "en-US" | "vi-VN") => {
     if (!text) return;
 
     const targetLang = lang === "en-US" ? "en" : "vi";
 
-    // Gọi vào Netlify Function của chính mình với type=audio
-    const audioUrl = `/.netlify/functions/dictionary?type=audio&term=${encodeURIComponent(
-      text
-    )}&lang=${targetLang}`;
+    const response = await axios.get(
+      `https://googlespeak.netlify.app/api/tts?text=${text}&lang=${targetLang}`
+    );
 
-    const audio = new Audio(audioUrl);
+    const audio = new Audio(response.data.audioContent);
     audio.play().catch((e) => {
       console.error("Lỗi phát âm:", e);
       message.error("Không thể tải file âm thanh.");
